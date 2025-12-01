@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import date, datetime
 import psycopg2
-from psycopg2 import sql
 
 
 class Database:
@@ -16,10 +15,12 @@ class Database:
                 dbname="for_term_paper"
             )
             self.cur = self.conn.cursor()
+            
         except Exception as e:
             print("Ошибка подключения:", e)
             messagebox.showerror("Ошибка подключения", str(e))
             raise
+
 
     def fetch(self, query, params=None):
         try:
@@ -39,6 +40,8 @@ class Database:
             self.conn.rollback()
             raise
 
+    
+
     def get_columns(self, table_name):
         """Получить список колонок таблицы"""
         try:
@@ -55,7 +58,7 @@ class Database:
             return []
 
 
-# -------------------- Универсальный CRUD --------------------
+#  CRUD
 class TableManagerWindow(tk.Toplevel):
     def __init__(self, db, table_name, columns):
         super().__init__()
@@ -130,10 +133,118 @@ class TableManagerWindow(tk.Toplevel):
             self.tree.selection_set(selected)
             self.menu.post(event.x_root, event.y_root)
 
+    # def load_data(self):
+    #     try:
+    #         query = f"SELECT * FROM {self.table_name}"
+    #         rows = self.db.fetch(query)
+    #     except Exception as e:
+    #         messagebox.showerror("Ошибка загрузки", str(e))
+    #         return
+
+    #     self.tree.delete(*self.tree.get_children())
+    #     for row in rows:
+    #         self.tree.insert("", "end", values=row)
+
     def load_data(self):
         try:
-            query = f"SELECT * FROM {self.table_name}"
+            if self.table_name == "staff":
+                query = """
+                    SELECT 
+                        s.staff_id,
+                        w.name AS warehouse,
+                        s.full_name,
+                        p.name AS position,
+                        s.inn,
+                        s.hired_at
+                    FROM staff s
+                    JOIN warehouses w ON w.warehouse_id = s.warehouse_id
+                    JOIN positions p ON p.position_id = s.position_id
+                    ORDER BY s.staff_id
+                """
+
+            elif self.table_name == "incoming_invoices":
+                query = """
+                    SELECT 
+                        i.incoming_id,
+                        w.name AS warehouse,
+                        i.supplier,
+                        i.invoice_number,
+                        i.invoice_date,
+                        i.total_amount
+                    FROM incoming_invoices i
+                    JOIN warehouses w ON w.warehouse_id = i.warehouse_id
+                    ORDER BY i.incoming_id
+                """
+
+            elif self.table_name == "incoming_items":
+                query = """
+                    SELECT 
+                        it.incoming_item_id,
+                        inv.invoice_number AS invoice,
+                        p.name AS product,
+                        it.quantity,
+                        it.unit_price,
+                        it.line_total
+                    FROM incoming_items it
+                    JOIN incoming_invoices inv ON inv.incoming_id = it.incoming_id
+                    JOIN products p ON p.product_id = it.product_id
+                    ORDER BY it.incoming_item_id
+                """
+
+            elif self.table_name == "outgoing_invoices":
+                query = """
+                    SELECT 
+                        o.outgoing_id,
+                        w.name AS warehouse,
+                        o.customer,
+                        o.invoice_number,
+                        o.invoice_date,
+                        o.total_amount
+                    FROM outgoing_invoices o
+                    JOIN warehouses w ON w.warehouse_id = o.warehouse_id
+                    ORDER BY o.outgoing_id
+                """
+
+            elif self.table_name == "outgoing_items":
+                query = """
+                    SELECT 
+                        ot.outgoing_item_id,
+                        inv.invoice_number AS invoice,
+                        p.name AS product,
+                        ot.quantity,
+                        ot.unit_price,
+                        ot.line_total
+                    FROM outgoing_items ot
+                    JOIN outgoing_invoices inv ON inv.outgoing_id = ot.outgoing_id
+                    JOIN products p ON p.product_id = ot.product_id
+                    ORDER BY ot.outgoing_item_id
+                """
+
+            elif self.table_name == "stock_balances":
+                query = """
+                    SELECT
+                        w.name AS warehouse,
+                        p.sku,
+                        p.name AS product,
+                        sb.qty,
+                        sb.last_updated
+                    FROM stock_balances sb
+                    JOIN warehouses w ON w.warehouse_id = sb.warehouse_id
+                    JOIN products p ON p.product_id = sb.product_id
+                    ORDER BY w.name, p.name
+                """
+
+            elif self.table_name == "products":
+                query = """
+                    SELECT product_id, sku, name, unit, price, created_at
+                    FROM products
+                """
+
+            else:
+                query = f"SELECT * FROM {self.table_name}"
+
             rows = self.db.fetch(query)
+
         except Exception as e:
             messagebox.showerror("Ошибка загрузки", str(e))
             return
@@ -141,6 +252,8 @@ class TableManagerWindow(tk.Toplevel):
         self.tree.delete(*self.tree.get_children())
         for row in rows:
             self.tree.insert("", "end", values=row)
+
+
 
     def apply_filter(self):
         col = self.search_col.get()
@@ -320,12 +433,12 @@ class TableManagerWindow(tk.Toplevel):
         scrollbar.pack(side="right", fill="y")
 
 
-# -------------------- 1:М Форма (Приходная/расходная накладная) --------------------
+# Приходная/расходная накладная
 class InvoiceItemsWindow(tk.Toplevel):
     def __init__(self, db, invoice_type):
         super().__init__()
         self.db = db
-        self.invoice_type = invoice_type  # 'incoming' или 'outgoing'
+        self.invoice_type = invoice_type  
         
         if invoice_type == 'incoming':
             self.invoice_table = "incoming_invoices"
@@ -347,7 +460,7 @@ class InvoiceItemsWindow(tk.Toplevel):
         invoice_frame = tk.LabelFrame(self, text="Накладные", padx=5, pady=5)
         invoice_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        invoice_cols = self.db.get_columns(self.invoice_table)
+        invoice_cols = ["ID", "Склад", "Контрагент", "Номер накладной", "Дата", "Сумма"]
         self.invoice_tree = ttk.Treeview(invoice_frame, columns=invoice_cols, show="headings", height=8)
         
         scrollbar_y = ttk.Scrollbar(invoice_frame, orient="vertical", command=self.invoice_tree.yview)
@@ -373,7 +486,7 @@ class InvoiceItemsWindow(tk.Toplevel):
         items_frame = tk.LabelFrame(self, text="Позиции выбранной накладной", padx=5, pady=5)
         items_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        items_cols = self.db.get_columns(self.items_table)
+        items_cols = ["ID", "Товар", "SKU", "Количество", "Цена за единицу", "Сумма"]
         self.items_tree = ttk.Treeview(items_frame, columns=items_cols, show="headings", height=10)
         
         scrollbar_y2 = ttk.Scrollbar(items_frame, orient="vertical", command=self.items_tree.yview)
@@ -399,7 +512,31 @@ class InvoiceItemsWindow(tk.Toplevel):
 
     def load_invoices(self):
         try:
-            rows = self.db.fetch(f"SELECT * FROM {self.invoice_table} ORDER BY invoice_date DESC")
+            if self.invoice_type == 'incoming':
+                query = """
+                    SELECT i.incoming_id,
+                           w.name AS warehouse,
+                           i.supplier AS counterparty,
+                           i.invoice_number,
+                           i.invoice_date,
+                           i.total_amount
+                    FROM incoming_invoices i
+                    JOIN warehouses w ON w.warehouse_id = i.warehouse_id
+                    ORDER BY i.invoice_date DESC
+                """
+            else:
+                query = """
+                    SELECT o.outgoing_id,
+                           w.name AS warehouse,
+                           o.customer AS counterparty,
+                           o.invoice_number,
+                           o.invoice_date,
+                           o.total_amount
+                    FROM outgoing_invoices o
+                    JOIN warehouses w ON w.warehouse_id = o.warehouse_id
+                    ORDER BY o.invoice_date DESC
+                """
+            rows = self.db.fetch(query)
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
             return
@@ -415,7 +552,32 @@ class InvoiceItemsWindow(tk.Toplevel):
         invoice_id = self.invoice_tree.item(selected[0])['values'][0]
         
         try:
-            query = f"SELECT * FROM {self.items_table} WHERE {self.invoice_id_col}=%s"
+            if self.invoice_type == 'incoming':
+                query = """
+                    SELECT it.incoming_item_id,
+                           p.name AS product,
+                           p.sku,
+                           it.quantity,
+                           it.unit_price,
+                           it.line_total
+                    FROM incoming_items it
+                    JOIN products p ON p.product_id = it.product_id
+                    WHERE it.incoming_id = %s
+                    ORDER BY it.incoming_item_id
+                """
+            else:
+                query = """
+                    SELECT it.outgoing_item_id,
+                           p.name AS product,
+                           p.sku,
+                           it.quantity,
+                           it.unit_price,
+                           it.line_total
+                    FROM outgoing_items it
+                    JOIN products p ON p.product_id = it.product_id
+                    WHERE it.outgoing_id = %s
+                    ORDER BY it.outgoing_item_id
+                """
             rows = self.db.fetch(query, (invoice_id,))
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
@@ -424,6 +586,7 @@ class InvoiceItemsWindow(tk.Toplevel):
         self.items_tree.delete(*self.items_tree.get_children())
         for row in rows:
             self.items_tree.insert("", "end", values=row)
+
 
     def add_item(self):
         selected = self.invoice_tree.selection()
@@ -589,7 +752,7 @@ class InvoiceItemsWindow(tk.Toplevel):
                 messagebox.showerror("Ошибка", str(e))
 
 
-# -------------------- Отчёты с фильтрами --------------------
+# Отчёты с фильтрами
 class ReportWindow(tk.Toplevel):
     def __init__(self, db):
         super().__init__()
@@ -627,12 +790,12 @@ class ReportWindow(tk.Toplevel):
         scrollbar_y.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar_y.set)
 
-    # ---------------- Фильтры ----------------
+    # Фильтры 
     def clear_filters(self):
         for widget in self.filter_frame.winfo_children():
             widget.destroy()
 
-    # ---------------- Построение отчёта ----------------
+    # Построение отчёта 
     def build_report(self):
         report = self.report_type.get()
 
@@ -643,9 +806,8 @@ class ReportWindow(tk.Toplevel):
         elif report.startswith("3"):
             self.report_movement()
 
-    # =====================================================================
+
     #  ОТЧЁТ 1 — Остатки на складе (vw_current_stock)
-    # =====================================================================
     def report_stock(self):
         self.clear_filters()
 
@@ -682,9 +844,8 @@ class ReportWindow(tk.Toplevel):
         cols = ["Склад", "SKU", "Товар", "Ед", "Кол-во", "Цена", "Сумма", "Обновлено"]
         self.update_table(cols, rows)
 
-    # =====================================================================
+
     #  ОТЧЁТ 2 — Прибыль от реализации (outgoing_items + products)
-    # =====================================================================
     def report_profit(self):
         self.clear_filters()
 
@@ -727,9 +888,8 @@ class ReportWindow(tk.Toplevel):
         cols = ["Товар", "Продано", "Цена продажи (ср.)", "Цена закупки (ср.)", "Прибыль"]
         self.update_table(cols, rows)
 
-    # =====================================================================
+
     #  ОТЧЁТ 3 — Движение товара (приход + расход)
-    # =====================================================================
     def report_movement(self):
         self.clear_filters()
 
@@ -781,7 +941,7 @@ class ReportWindow(tk.Toplevel):
         cols = ["SKU", "Товар", "Приход", "Расход", "Изменение остатков"]
         self.update_table(cols, rows)
 
-    # ---------------- Обновление таблицы ----------------
+    # Обновление таблицы 
     def update_table(self, cols, rows):
         self.tree.delete(*self.tree.get_children())
         self.tree["columns"] = cols
@@ -793,7 +953,7 @@ class ReportWindow(tk.Toplevel):
             self.tree.insert("", "end", values=row)
 
 
-# -------------------- Главное окно --------------------
+# Главное окно
 class MainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
